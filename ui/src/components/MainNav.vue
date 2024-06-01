@@ -1,9 +1,7 @@
 <template>
   <nav class="nav">
     <div class="nav-left">
-      <a class="title" href="https://github.com/im2nguyen/rover">
         <h2>Rover - Terraform Visualizer</h2>
-      </a>
     </div>
     <div class="nav-right">
       <a id="saveGraph" class="button outline" @click="saveGraph()"

@@ -4,11 +4,10 @@ import (
 	"context"
 	"embed"
 	"encoding/json"
-	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"io/fs"
-	"io/ioutil"
 	"log"
 	"net/http"
 	"os"
@@ -102,7 +101,7 @@ func main() {
 
 	path, err := os.Getwd()
 	if err != nil {
-		log.Fatal(errors.New("Unable to get current working directory"))
+		log.Fatal(fmt.Errorf("unable to get current working directory"))
 	}
 
 	if planPath != "" {
@@ -181,7 +180,7 @@ func (r *rover) generateAssets() error {
 	// Get Plan
 	err := r.getPlan()
 	if err != nil {
-		return errors.New(fmt.Sprintf("Unable to parse Plan: %s", err))
+		return fmt.Errorf(fmt.Sprintf("Unable to parse Plan: %s", err))
 	}
 
 	// Generate RSO, Map, Graph
@@ -204,7 +203,7 @@ func (r *rover) generateAssets() error {
 }
 
 func (r *rover) getPlan() error {
-	tmpDir, err := ioutil.TempDir("", "rover")
+	tmpDir, err := os.MkdirTemp("", "rover")
 	if err != nil {
 		return err
 	}
@@ -220,7 +219,7 @@ func (r *rover) getPlan() error {
 		log.Println("Using provided plan...")
 		r.Plan, err = tf.ShowPlanFile(context.Background(), r.PlanPath)
 		if err != nil {
-			return errors.New(fmt.Sprintf("Unable to read Plan (%s): %s", r.PlanPath, err))
+			return fmt.Errorf(fmt.Sprintf("Unable to read Plan (%s): %s", r.PlanPath, err))
 		}
 		return nil
 	}
@@ -231,17 +230,17 @@ func (r *rover) getPlan() error {
 
 		planJsonFile, err := os.Open(r.PlanJSONPath)
 		if err != nil {
-			return errors.New(fmt.Sprintf("Unable to read Plan (%s): %s", r.PlanJSONPath, err))
+			return fmt.Errorf(fmt.Sprintf("Unable to read Plan (%s): %s", r.PlanJSONPath, err))
 		}
 		defer planJsonFile.Close()
 
-		planJson, err := ioutil.ReadAll(planJsonFile)
+		planJson, err := io.ReadAll(planJsonFile)
 		if err != nil {
-			return errors.New(fmt.Sprintf("Unable to read Plan (%s): %s", r.PlanJSONPath, err))
+			return fmt.Errorf(fmt.Sprintf("Unable to read Plan (%s): %s", r.PlanJSONPath, err))
 		}
 
 		if err := json.Unmarshal(planJson, &r.Plan); err != nil {
-			return errors.New(fmt.Sprintf("Unable to read Plan (%s): %s", r.PlanJSONPath, err))
+			return fmt.Errorf(fmt.Sprintf("Unable to read Plan (%s): %s", r.PlanJSONPath, err))
 		}
 
 		return nil
@@ -252,11 +251,11 @@ func (r *rover) getPlan() error {
 		tfcToken := os.Getenv("TFC_TOKEN")
 
 		if tfcToken == "" {
-			return errors.New("TFC_TOKEN environment variable not set")
+			return fmt.Errorf("TFC_TOKEN environment variable not set")
 		}
 
 		if r.TFCOrgName == "" {
-			return errors.New("Must specify Terraform Cloud organization to retrieve plan from Terraform Cloud")
+			return fmt.Errorf("must specify Terraform Cloud organization to retrieve plan from Terraform Cloud")
 		}
 
 		config := &tfe.Config{
@@ -265,19 +264,19 @@ func (r *rover) getPlan() error {
 
 		client, err := tfe.NewClient(config)
 		if err != nil {
-			return errors.New(fmt.Sprintf("Unable to connect to Terraform Cloud. %s", err))
+			return fmt.Errorf(fmt.Sprintf("Unable to connect to Terraform Cloud. %s", err))
 		}
 
 		// Get TFC Workspace
 		ws, err := client.Workspaces.Read(context.Background(), r.TFCOrgName, r.TFCWorkspaceName)
 		if err != nil {
-			return errors.New(fmt.Sprintf("Unable to list workspace %s in %s organization. %s", r.TFCWorkspaceName, r.TFCOrgName, err))
+			return fmt.Errorf(fmt.Sprintf("Unable to list workspace %s in %s organization. %s", r.TFCWorkspaceName, r.TFCOrgName, err))
 		}
 
 		// Retrieve all runs from specified TFC workspace
 		runs, err := client.Runs.List(context.Background(), ws.ID, tfe.RunListOptions{})
 		if err != nil {
-			return errors.New(fmt.Sprintf("Unable to retrieve plan from %s in %s organization. %s", r.TFCWorkspaceName, r.TFCOrgName, err))
+			return fmt.Errorf(fmt.Sprintf("Unable to retrieve plan from %s in %s organization. %s", r.TFCWorkspaceName, r.TFCOrgName, err))
 		}
 
 		run := runs.Items[0]
@@ -289,7 +288,7 @@ func (r *rover) getPlan() error {
 		runIsActionable := run.StatusTimestamps.AppliedAt.IsZero() && run.StatusTimestamps.DiscardedAt.IsZero()
 
 		if runIsActionable && r.TFCNewRun {
-			return errors.New(fmt.Sprintf("Did not create new run. %s in %s in %s is still active", run.ID, r.TFCWorkspaceName, r.TFCOrgName))
+			return fmt.Errorf(fmt.Sprintf("Did not create new run. %s in %s in %s is still active", run.ID, r.TFCWorkspaceName, r.TFCOrgName))
 		}
 
 		// If latest run is not actionable, rover will create new run
@@ -300,7 +299,7 @@ func (r *rover) getPlan() error {
 				Workspace: ws,
 			})
 			if err != nil {
-				return errors.New(fmt.Sprintf("Unable to generate new run from %s in %s organization. %s", r.TFCWorkspaceName, r.TFCOrgName, err))
+				return fmt.Errorf(fmt.Sprintf("Unable to generate new run from %s in %s organization. %s", r.TFCWorkspaceName, r.TFCOrgName, err))
 			}
 
 			run = newRun
@@ -311,7 +310,7 @@ func (r *rover) getPlan() error {
 			for i := 0; i < 30; i++ {
 				run, err := client.Runs.Read(context.Background(), newRun.ID)
 				if err != nil {
-					return errors.New(fmt.Sprintf("Unable to retrieve run from %s in %s organization. %s", r.TFCWorkspaceName, r.TFCOrgName, err))
+					return fmt.Errorf(fmt.Sprintf("Unable to retrieve run from %s in %s organization. %s", r.TFCWorkspaceName, r.TFCOrgName, err))
 				}
 
 				if run.Plan != nil {
@@ -327,22 +326,22 @@ func (r *rover) getPlan() error {
 			}
 
 			if planID == "" {
-				return errors.New(fmt.Sprintf("Timeout waiting for plan to complete in %s in %s organization. %s", r.TFCWorkspaceName, r.TFCOrgName, err))
+				return fmt.Errorf(fmt.Sprintf("Timeout waiting for plan to complete in %s in %s organization. %s", r.TFCWorkspaceName, r.TFCOrgName, err))
 			}
 		}
 
 		// Get most recent plan file
 		planBytes, err := client.Plans.JSONOutput(context.Background(), planID)
 		if err != nil {
-			return errors.New(fmt.Sprintf("Unable to retrieve plan from %s in %s organization. %s", r.TFCWorkspaceName, r.TFCOrgName, err))
+			return fmt.Errorf(fmt.Sprintf("Unable to retrieve plan from %s in %s organization. %s", r.TFCWorkspaceName, r.TFCOrgName, err))
 		}
 		// If empty plan file
 		if string(planBytes) == "" {
-			return errors.New(fmt.Sprintf("Empty plan. Check run %s in %s in %s is not pending", run.ID, r.TFCWorkspaceName, r.TFCOrgName))
+			return fmt.Errorf(fmt.Sprintf("Empty plan. Check run %s in %s in %s is not pending", run.ID, r.TFCWorkspaceName, r.TFCOrgName))
 		}
 
 		if err := json.Unmarshal(planBytes, &r.Plan); err != nil {
-			return errors.New(fmt.Sprintf("Unable to parse plan (ID: %s) from %s in %s organization.: %s", planID, r.TFCWorkspaceName, r.TFCOrgName, err))
+			return fmt.Errorf(fmt.Sprintf("Unable to parse plan (ID: %s) from %s in %s organization.: %s", planID, r.TFCWorkspaceName, r.TFCOrgName, err))
 		}
 
 		return nil
@@ -365,14 +364,14 @@ func (r *rover) getPlan() error {
 
 	err = tf.Init(context.Background(), tfInitOptions...)
 	if err != nil {
-		return errors.New(fmt.Sprintf("Unable to initialize Terraform Plan: %s", err))
+		return fmt.Errorf(fmt.Sprintf("Unable to initialize Terraform Plan: %s", err))
 	}
 
 	if r.WorkspaceName != "" {
 		log.Printf("Running in %s workspace...", r.WorkspaceName)
 		err = tf.WorkspaceSelect(context.Background(), r.WorkspaceName)
 		if err != nil {
-			return errors.New(fmt.Sprintf("Unable to select workspace (%s): %s", r.WorkspaceName, err))
+			return fmt.Errorf(fmt.Sprintf("Unable to select workspace (%s): %s", r.WorkspaceName, err))
 		}
 	}
 
@@ -399,12 +398,12 @@ func (r *rover) getPlan() error {
 
 	_, err = tf.Plan(context.Background(), tfPlanOptions...)
 	if err != nil {
-		return errors.New(fmt.Sprintf("Unable to run Plan: %s", err))
+		return fmt.Errorf(fmt.Sprintf("Unable to run Plan: %s", err))
 	}
 
 	r.Plan, err = tf.ShowPlanFile(context.Background(), planPath)
 	if err != nil {
-		return errors.New(fmt.Sprintf("Unable to read Plan: %s", err))
+		return fmt.Errorf(fmt.Sprintf("Unable to read Plan: %s", err))
 	}
 
 	return nil
